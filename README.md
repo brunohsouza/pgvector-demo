@@ -38,6 +38,14 @@ Start the page and open http://localhost:3000:
 | Voyage AI | `voyage-4` | 1024 | `VOYAGE_API_KEY` | `npm run start:voyage` | `npm run demo:voyage` |
 | None (testing) | word hashing | 1536 | none | `npm run start:fake` | `npm run demo:fake` |
 
+## How it works
+
+![Each action embeds the text, then runs one SQL statement: the web page calls the Express API, which gets a vector from the embedding API and then runs SQL against Postgres with pgvector](docs/request-flow.svg)
+
+Search, insert and update call the embedding model first, because the text has
+to become a vector before Postgres can store or compare it. Delete and list go
+straight to the database. Everything lives in one `documents` table.
+
 ## The web page
 
 - **Search by meaning:** type a question, optionally limit it to one topic,
