@@ -1,9 +1,9 @@
-# pgvector CRUD demo
+# PGVector demo
 
 A small Node.js demo for "The Vector Database We Didn't Buy": create, read
 (nearest-neighbour search), update and delete rows that carry an embedding,
 plus a filtered search with iterative index scans. It comes as a simple web
-page for recording, and as a terminal script.
+page for recording and as a terminal script.
 
 ![The demo page](screenshot.png)
 
@@ -50,7 +50,7 @@ straight to the database. Everything lives in one `documents` table.
 
 - **Search by meaning:** type a question, optionally limit it to one topic,
   and see the three nearest documents with a similarity bar.
-- **Documents:** add, edit and delete rows. After every change the last
+- **Documents:** add, edit and delete rows. After every change, the last
   search runs again, so the audience sees the effect straight away.
 - **SQL that just ran:** the exact statement behind the last action, with the
   time spent embedding and querying.
