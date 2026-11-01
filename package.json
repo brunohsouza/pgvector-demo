@@ -1,0 +1,26 @@
+{
+  "name": "pgvector-crud-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "start:gemini": "EMBEDDINGS_PROVIDER=gemini node --env-file-if-exists=.env src/server.js",
+    "start:voyage": "EMBEDDINGS_PROVIDER=voyage node --env-file-if-exists=.env src/server.js",
+    "start:fake": "EMBEDDINGS_PROVIDER=fake node --env-file-if-exists=.env src/server.js",
+    "demo": "node --env-file-if-exists=.env src/demo.js",
+    "demo:gemini": "EMBEDDINGS_PROVIDER=gemini node --env-file-if-exists=.env src/demo.js",
+    "demo:voyage": "EMBEDDINGS_PROVIDER=voyage node --env-file-if-exists=.env src/demo.js",
+    "demo:fake": "EMBEDDINGS_PROVIDER=fake node --env-file-if-exists=.env src/demo.js",
+    "test": "EMBEDDINGS_PROVIDER=fake node --env-file-if-exists=.env --test 'test/*.test.js'"
+  },
+  "engines": {
+    "node": ">=22.9"
+  },
+  "dependencies": {
+    "@google/genai": "^2.32.0",
+    "express": "^5.3.0",
+    "openai": "^7.47.0",
+    "pg": "^8.23.1",
+    "pgvector": "^0.3.0"
+  }
+}
