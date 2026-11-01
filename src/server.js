@@ -1,20 +1,44 @@
+import path from 'node:path'
 import express from 'express'
-import { PROVIDER, MODEL, DIM } from './embed.js'
+import { PROVIDER, MODEL, DIM, LABEL } from './embed.js'
 import {
   SQL, ensureTable, resetSampleData, createDocuments, listDocuments,
   search, updateDocument, deleteDocument,
 } from './documents.js'
 
 const app = express()
-app.use(express.json())
-app.use(express.static(new URL('../public', import.meta.url).pathname))
+app.use(express.json({ limit: '16kb' }))
+app.use(express.static(path.join(import.meta.dirname, '../public')))
+
+const httpError = (status, message) => Object.assign(new Error(message), { status })
+
+// Caps keep a stray request from sending a novel to the embeddings API.
+const FIELDS = {
+  title: { label: 'The title', max: 200 },
+  topic: { label: 'The topic', max: 50 },
+  body: { label: 'The text', max: 4000 },
+  q: { label: 'The question', max: 500 },
+}
+
+const text = (value, field) => {
+  if (value == null) return ''
+  const { label, max } = FIELDS[field]
+  if (typeof value !== 'string') throw httpError(400, `${label} must be text.`)
+  const trimmed = value.trim()
+  if (trimmed.length > max) throw httpError(400, `${label} is longer than ${max} characters.`)
+  return trimmed
+}
 
 const clean = ({ title, topic, body } = {}) => {
-  const doc = { title: title?.trim(), topic: topic?.trim().toLowerCase(), body: body?.trim() }
-  if (!doc.title || !doc.topic || !doc.body) {
-    throw Object.assign(new Error('Title, topic and text are all required.'), { status: 400 })
-  }
+  const doc = { title: text(title, 'title'), topic: text(topic, 'topic').toLowerCase(), body: text(body, 'body') }
+  if (!doc.title || !doc.topic || !doc.body) throw httpError(400, 'Title, topic and text are all required.')
   return doc
+}
+
+const documentId = (raw) => {
+  const id = Number(raw)
+  if (!Number.isInteger(id) || id <= 0) throw httpError(404, 'Document not found.')
+  return id
 }
 
 app.get('/api/info', (req, res) => {
@@ -31,23 +55,23 @@ app.post('/api/documents', async (req, res) => {
 })
 
 app.put('/api/documents/:id', async (req, res) => {
-  const updated = await updateDocument(Number(req.params.id), clean(req.body))
-  if (!updated) return res.status(404).json({ error: 'Document not found.' })
+  const updated = await updateDocument(documentId(req.params.id), clean(req.body))
+  if (!updated) throw httpError(404, 'Document not found.')
   res.json({ sql: SQL.update })
 })
 
 app.delete('/api/documents/:id', async (req, res) => {
-  const deleted = await deleteDocument(Number(req.params.id))
-  if (!deleted) return res.status(404).json({ error: 'Document not found.' })
+  const deleted = await deleteDocument(documentId(req.params.id))
+  if (!deleted) throw httpError(404, 'Document not found.')
   res.json({ sql: SQL.delete })
 })
 
 app.get('/api/search', async (req, res) => {
-  const question = req.query.q?.trim()
-  if (!question) return res.status(400).json({ error: 'Type a question first.' })
-  const topic = req.query.topic || undefined
-  const result = await search(question, { k: 3, topic })
-  res.json({ ...result, sql: topic ? SQL.searchInTopic : SQL.search })
+  const question = text(req.query.q, 'q')
+  if (!question) throw httpError(400, 'Type a question first.')
+  const topic = text(req.query.topic, 'topic') || undefined
+  const result = await search(question, { topic })
+  res.json({ ...result, sql: topic ? `${SQL.iterativeScan};\n\n${SQL.searchInTopic}` : SQL.search })
 })
 
 app.post('/api/reset', async (req, res) => {
@@ -62,8 +86,10 @@ app.use((err, req, res, next) => {
 
 const created = await ensureTable()
 const port = Number(process.env.PORT ?? 3000)
-app.listen(port, () => {
-  console.log(`Embeddings: ${PROVIDER} · ${MODEL} · ${DIM} dimensions`)
+// Loopback only: on conference Wi-Fi nobody else should reach the paid or destructive routes.
+const host = process.env.HOST ?? '127.0.0.1'
+app.listen(port, host, () => {
+  console.log(`Embeddings: ${LABEL}`)
   if (created) console.log('Created the documents table with sample data.')
   console.log(`Demo running at http://localhost:${port}`)
 })

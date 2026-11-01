@@ -54,7 +54,8 @@
   .body { color: var(--muted); font-size: 15px; }
   .score { font-family: var(--mono); font-size: 15px; text-align: right; }
   .bar { height: 8px; background: #EEE9DF; border-radius: 4px; margin-top: 6px; overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--orange); border-radius: 4px; transition: width .5s ease; }
+  .bar i { display: block; height: 100%; background: var(--orange); border-radius: 4px; animation: grow .5s ease; }
+  @keyframes grow { from { width: 0; } }
   .empty { color: var(--muted); margin: 14px 0 0; }
 
   .pill { display: inline-block; font-family: var(--mono); font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #E9EEF3; color: var(--blue); margin-left: 8px; vertical-align: 2px; }
@@ -223,31 +224,38 @@ async function loadDocs(flashId) {
   return data
 }
 
-function renderResults(rows) {
+function renderResults(rows, emptyText = 'No documents match.') {
   $('results-empty').style.display = rows.length ? 'none' : 'block'
-  $('results-empty').textContent = rows.length ? '' : 'No documents match.'
+  $('results-empty').textContent = emptyText
   $('results').innerHTML = rows.map((r, i) => `
     <li class="result">
       <div class="rank">${i + 1}</div>
       <div><span class="title">${esc(r.title)}</span><span class="pill ${esc(r.topic)}">${esc(r.topic)}</span>
         <div class="body">${esc(r.body)}</div></div>
       <div class="scorebox"><div class="score">${r.similarity.toFixed(3)}</div>
-        <div class="bar"><i style="width:0%" data-w="${Math.max(0, r.similarity) * 100}"></i></div></div>
+        <div class="bar"><i style="width:${Math.max(0, r.similarity) * 100}%"></i></div></div>
     </li>`).join('')
-  requestAnimationFrame(() => document.querySelectorAll('.bar i').forEach((b) => { b.style.width = b.dataset.w + '%' }))
 }
 
-async function runSearch({ silent = false } = {}) {
-  const q = silent ? lastSearch?.q : $('q').value.trim()
-  if (!q) return silent ? undefined : toast('Type a question first.')
-  const topic = silent ? lastSearch.topic : $('topic').value
-  lastSearch = { q, topic }
+async function fetchResults({ q, topic }) {
   const params = new URLSearchParams({ q, ...(topic && { topic }) })
   const data = await api(`/api/search?${params}`)
   renderResults(data.rows)
-  if (silent) return
+  return data
+}
+
+async function runSearch() {
+  const q = $('q').value.trim()
+  if (!q) return toast('Type a question first.')
+  const topic = $('topic').value
+  const data = await fetchResults({ q, topic })
+  lastSearch = { q, topic }
   showSql(topic ? `Nearest 3 in “${topic}”, with iterative scans` : 'Nearest 3 documents',
     data.sql, `embed ${data.embedMs} ms · query ${data.queryMs} ms`)
+}
+
+async function refresh(flashId) {
+  await Promise.all([loadDocs(flashId), lastSearch && fetchResults(lastSearch)])
 }
 
 function openForm(doc) {
@@ -277,19 +285,15 @@ $('edit-form').addEventListener('submit', (e) => {
   busy($('save'), async () => {
     const f = e.target
     const doc = { title: f.title.value, topic: f.topic.value, body: f.body.value }
+    const body = JSON.stringify(doc)
     const t0 = performance.now()
-    if (editingId) {
-      const data = await api(`/api/documents/${editingId}`, { method: 'PUT', body: JSON.stringify(doc) })
-      showSql(`Updated document #${editingId}`, data.sql, `${Math.round(performance.now() - t0)} ms, including the embedding call`)
-      await loadDocs(editingId)
-      await runSearch({ silent: true })
-    } else {
-      const data = await api('/api/documents', { method: 'POST', body: JSON.stringify(doc) })
-      showSql(`Inserted document #${data.id}`, data.sql, `${Math.round(performance.now() - t0)} ms, including the embedding call`)
-      await loadDocs(data.id)
-      await runSearch({ silent: true })
-    }
+    const data = editingId
+      ? await api(`/api/documents/${editingId}`, { method: 'PUT', body })
+      : await api('/api/documents', { method: 'POST', body })
+    const id = editingId ?? data.id
+    showSql(`${editingId ? 'Updated' : 'Inserted'} document #${id}`, data.sql, `${Math.round(performance.now() - t0)} ms, including the embedding call`)
     closeForm()
+    await refresh(id)
   })
 })
 
@@ -309,8 +313,7 @@ $('docs').addEventListener('click', (e) => {
     const data = await api(`/api/documents/${id}`, { method: 'DELETE' })
     showSql(`Deleted document #${id}`, data.sql)
     if (editingId === id) closeForm()
-    await loadDocs()
-    await runSearch({ silent: true })
+    await refresh()
   })
 })
 
@@ -319,15 +322,20 @@ $('reset').addEventListener('click', () => busy($('reset'), async () => {
   showSql('Recreated the table and inserted the sample documents', data.sql)
   closeForm()
   lastSearch = null
-  renderResults([])
-  $('results-empty').textContent = 'Run a search to see the three nearest documents.'
+  renderResults([], 'Run a search to see the three nearest documents.')
   await loadDocs()
 }))
 
-api('/api/info').then((i) => {
-  $('info').innerHTML = `<b>${esc(i.provider)}</b> · ${esc(i.model)} · <b>vector(${i.dimensions})</b>`
-}).catch((err) => toast(err.message))
-loadDocs().then((data) => showSql('Loaded all documents', data.sql)).catch((err) => toast(err.message))
+async function init() {
+  try {
+    const [info, data] = await Promise.all([api('/api/info'), loadDocs()])
+    $('info').innerHTML = `<b>${esc(info.provider)}</b> · ${esc(info.model)} · <b>vector(${info.dimensions})</b>`
+    showSql('Loaded all documents', data.sql)
+  } catch (err) {
+    toast(err.message)
+  }
+}
+init()
 </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 // Terminal version of the demo: the same CRUD steps as the web page.
 import { pool } from './db.js'
-import { PROVIDER, MODEL, DIM } from './embed.js'
+import { LABEL } from './embed.js'
 import { resetSampleData, search, updateDocument, deleteDocument } from './documents.js'
 
 const question = 'the tax due when you sell shares at a profit'
@@ -10,7 +10,7 @@ const show = async (q, opts) => console.table(
 )
 
 try {
-  console.log(`Embeddings: ${PROVIDER} · ${MODEL} · ${DIM} dimensions`)
+  console.log(`Embeddings: ${LABEL}`)
 
   step('1 · CREATE')
   const ids = await resetSampleData()

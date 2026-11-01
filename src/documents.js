@@ -1,5 +1,5 @@
 import { pool, toSql } from './db.js'
-import { embed, DIM } from './embed.js'
+import { DIM, embed } from './embed.js'
 import { sampleDocuments } from './sample-data.js'
 
 // The SQL lives in named constants so the web page can show exactly what ran.
@@ -16,7 +16,7 @@ CREATE INDEX ON documents USING hnsw (embedding vector_cosine_ops);`,
 
   insert: `INSERT INTO documents (title, body, topic, embedding)
 VALUES ($1, $2, $3, $4)
-RETURNING id`,
+RETURNING id::int`,
 
   list: `SELECT id::int, title, topic, body, updated_at
   FROM documents
@@ -28,9 +28,9 @@ RETURNING id`,
  ORDER BY embedding <=> $1
  LIMIT $2`,
 
-  searchInTopic: `SET LOCAL hnsw.iterative_scan = strict_order;
+  iterativeScan: `SET LOCAL hnsw.iterative_scan = strict_order`,
 
-SELECT id::int, title, topic, body,
+  searchInTopic: `SELECT id::int, title, topic, body,
        1 - (embedding <=> $1) AS similarity
   FROM documents
  WHERE topic = $2
@@ -71,9 +71,10 @@ export async function resetSampleData() {
 export async function createDocuments(docs) {
   const vectors = await embed(docs.map((d) => d.body), 'document')
   const ids = []
+
   for (const [i, d] of docs.entries()) {
     const { rows } = await pool.query(SQL.insert, [d.title, d.body, d.topic, toSql(vectors[i])])
-    ids.push(Number(rows[0].id))
+    ids.push(rows[0].id)
   }
   return ids
 }
@@ -98,22 +99,29 @@ export async function search(question, { k = 3, topic } = {}) {
 // WHERE runs after the index scan and you get fewer rows than you asked for.
 async function searchInTopic(q, topic, k) {
   const client = await pool.connect()
+  let releaseError
   try {
     await client.query('BEGIN')
-    await client.query('SET LOCAL hnsw.iterative_scan = strict_order')
-    const { rows } = await client.query(SQL.searchInTopic.split(';\n\n')[1], [toSql(q), topic, k])
+    await client.query(SQL.iterativeScan)
+    const { rows } = await client.query(SQL.searchInTopic, [toSql(q), topic, k])
     await client.query('COMMIT')
     return rows
   } catch (err) {
-    await client.query('ROLLBACK')
+    // ROLLBACK itself fails when the connection is gone; the original error is the one to report.
+    await client.query('ROLLBACK').catch(() => {})
+    // Passing the error to release() makes pg-pool discard the client instead of reusing a dead one.
+    if (isConnectionError(err)) releaseError = err
     if (err.code === '42602' || err.code === '42704') {
       throw Object.assign(new Error('Filtered search needs pgvector 0.8 or later.'), { status: 400 })
     }
     throw err
   } finally {
-    client.release()
+    client.release(releaseError)
   }
 }
+
+// SQLSTATE class 08 is "connection exception" and 57P01 is "admin shutdown"; socket errors carry no code at all.
+const isConnectionError = (err) => !err.code || err.code.startsWith('08') || err.code === '57P01'
 
 // UPDATE: new text means a new vector, written in the same statement.
 export async function updateDocument(id, { title, body, topic }) {

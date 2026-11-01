@@ -10,10 +10,11 @@ const providers = {
   fake: { model: 'word-hash', dim: 1536, embed: async (input) => input.map(fakeEmbedding) },
 }
 
-export const PROVIDER = process.env.FAKE_EMBEDDINGS ? 'fake' : (process.env.EMBEDDINGS_PROVIDER ?? 'openai')
+export const PROVIDER = process.env.EMBEDDINGS_PROVIDER ?? 'openai'
 const provider = providers[PROVIDER]
 if (!provider) throw new Error(`Unknown EMBEDDINGS_PROVIDER "${PROVIDER}"`)
 export const { model: MODEL, dim: DIM } = provider
+export const LABEL = `${PROVIDER} · ${MODEL} · ${DIM} dimensions`
 
 // One API call for many texts; returns one vector per text, in order.
 // kind is 'document' for stored rows and 'query' for questions: Gemini and
@@ -27,7 +28,7 @@ let openai
 async function embedOpenAI(input) {
   openai ??= new OpenAI()
   const { data } = await openai.embeddings.create({ model: MODEL, input })
-  return data.sort((a, b) => a.index - b.index).map((d) => d.embedding)
+  return vectorsByIndex(data)
 }
 
 let gemini
@@ -57,8 +58,11 @@ async function embedVoyage(input, kind) {
   })
   if (!res.ok) throw new Error(`Voyage ${res.status}: ${await res.text()}`)
   const { data } = await res.json()
-  return data.sort((a, b) => a.index - b.index).map((d) => d.embedding)
+  return vectorsByIndex(data)
 }
+
+// OpenAI and Voyage both return { index, embedding } items; put them back in input order.
+const vectorsByIndex = (data) => data.toSorted((a, b) => a.index - b.index).map((d) => d.embedding)
 
 function normalise(v) {
   const norm = Math.hypot(...v) || 1

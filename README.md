@@ -15,10 +15,19 @@ npm install
 cp .env.example .env     # then set the key for one embeddings provider
 ```
 
-The database is published on host port 5433 so it does not clash with a
-Postgres already running on 5432. `.env` is read by every npm script
-(`node --env-file-if-exists=.env`); variables set in the shell take
-precedence, so the per-provider scripts below still work.
+Needs Node 22.9 or later. The database is published on host port 5433 so it
+does not clash with a Postgres already running on 5432. `.env` is read by every
+npm script (`node --env-file-if-exists=.env`); variables set in the shell take
+precedence, so the per-provider scripts below still work. Node does not expand
+`${VAR}` references in `.env`, so put the key itself there, or export it in the
+shell and leave the line out.
+
+Both the database and the page listen on 127.0.0.1 only, so nobody else on a
+conference network can reach them. Set `HOST=0.0.0.0` in `.env` if a second
+machine really needs the page.
+
+`npm test` runs the checks against the demo database with fake embeddings, so
+it needs `docker compose up -d` but no API key.
 
 Start the page and open http://localhost:3000:
 
